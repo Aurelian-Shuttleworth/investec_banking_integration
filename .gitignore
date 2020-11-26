@@ -1,4 +1,4 @@
 /build
 /dist
-/investec_banking_integration.egg-info
 .pypirc
+investec.egg-info
