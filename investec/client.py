@@ -40,13 +40,13 @@ class Client(metaclass=Singleton):
         self._version = "v2"
         self.auth_url = None
 
-    @property
-    def token(self):
-        return self._token
-
-    @token.setter
-    def token(self, value):
-        self._token = f"Basic {value}"
+    # @property
+    # def token(self):
+    #     return self._token
+    #
+    # @token.setter
+    # def token(self, value):
+    #     self._token = f"Basic {value}"
 
     @property
     def expires_in(self):
@@ -80,15 +80,16 @@ class Client(metaclass=Singleton):
 
         response = self.post(
             url=self.auth_url,
-            headers=self._basic_header()
+            headers=self._basic_header(),
+            auth=self.token,
         )
 
         self.access_token = response.json().get("access_token")  # have a none base exception.
         self.expires_in = response.json().get("expires_in")
 
+    @staticmethod
     def _basic_header(self):
         return {
-            "Authorization": {self.token},
             "content-type": "application/x-www-form-urlencoded",
         }
 
@@ -98,13 +99,14 @@ class Client(metaclass=Singleton):
             "content-type": "application/json",
         }
 
-    def post(self, url, headers):
+    def post(self, url, headers, auth):
         """Make a post request."""
 
         return requests.post(
             url=url,
             headers=headers,
             data="",
+            auth=auth
         )
 
     def get(self, url, headers):
