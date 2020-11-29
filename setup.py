@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name="investec",
-    version="0.0.9",
+    version="0.1.0",
     author="Kevin Smith",
     author_email="kevinsmith.kis@gmail.com",
     url="https://github.com/Aurelian-Shuttleworth/investec_banking_integration",

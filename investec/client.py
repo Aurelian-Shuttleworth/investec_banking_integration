@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 import requests
 from requests import auth
+import json
 
 
 class Singleton(type):
@@ -12,6 +13,15 @@ class Singleton(type):
         else:
             cls._instances[cls].__init__(*args, **kwargs)
         return cls._instances[cls]
+
+
+class AuthorizationBearer(requests.auth.AuthBase):
+    def __init__(self, access_token):
+        self.access_token = access_token
+
+    def __call__(self, request):
+        request.headers["Authorization"] = f"Bearer {self.access_token}"
+        return request
 
 
 class Client(metaclass=Singleton):
@@ -40,13 +50,13 @@ class Client(metaclass=Singleton):
         self._version = "v2"
         self.auth_url = None
 
-    # @property
-    # def token(self):
-    #     return self._token
-    #
-    # @token.setter
-    # def token(self, value):
-    #     self._token = f"Basic {value}"
+    @property
+    def token(self):
+        return self._token
+
+    @token.setter
+    def token(self, value):
+        self._token = value
 
     @property
     def expires_in(self):
@@ -64,11 +74,11 @@ class Client(metaclass=Singleton):
 
     @property
     def access_token(self):
-        return self._expires_in
+        return self._access_token
 
     @access_token.setter
     def access_token(self, value):
-        self._access_token = f"Bearer {value}"
+        self._access_token = value
 
     def _authentication(self):
         """Does oauth2 authentication, uses the token as the initial Basic auth api key."""
@@ -81,32 +91,33 @@ class Client(metaclass=Singleton):
         response = self.post(
             url=self.auth_url,
             headers=self._basic_header(),
-            auth=self.token,
+            authorization=self.token,
         )
 
-        self.access_token = response.json().get("access_token")  # have a none base exception.
+        self.access_token = json.loads(response.text).get("access_token")  # have a none base exception.
         self.expires_in = response.json().get("expires_in")
 
     @staticmethod
-    def _basic_header(self):
+    def _basic_header():
         return {
             "content-type": "application/x-www-form-urlencoded",
         }
 
-    def _bearer_header(self):
+    @staticmethod
+    def _bearer_header():
         return {
-            "Authorization": self._access_token,
             "content-type": "application/json",
         }
 
-    def post(self, url, headers, auth):
+    @staticmethod
+    def post(url, headers, authorization):
         """Make a post request."""
 
         return requests.post(
             url=url,
             headers=headers,
-            data="",
-            auth=auth
+            data="grant_type=client_credentials&scope=accounts",
+            auth=authorization,
         )
 
     def get(self, url, headers):
@@ -116,6 +127,7 @@ class Client(metaclass=Singleton):
         return requests.get(
             url=url,
             headers=headers,
+            auth=AuthorizationBearer(self._access_token)
         )
 
 
@@ -123,7 +135,7 @@ class InvestecClient(Client):
     def __init__(self, client_id, client_secret):
         super().__init__(client_id, client_secret)
 
-        self.destination_lookup = [
+        self.requests_lookup = [
             "accounts",
             "account_transactions",
             "account_balance",
@@ -137,9 +149,10 @@ class InvestecClient(Client):
         self.accounts = "accounts"
         self.base = f"{self.domain}/{self.api}/{self.version}"
 
-    def _build_destination_accounts(self, **kwargs):
+    def _build_request_accounts(self, **kwargs):
         """
         GET /za/pb/v1/accounts
+        /za/pb/v1/accounts
         """
         url = f"{self.https}{self.host}/{self.base}/{self.accounts}"
 
@@ -151,9 +164,10 @@ class InvestecClient(Client):
         except Exception as e:
             return e
         else:
-            return response
+            if response.status_code == 200:
+                return json.loads(response.text)
 
-    def _build_destination_account_transactions(self, **kwargs):
+    def _build_request_account_transactions(self, **kwargs):
         """
         GET /za/pb/v1/accounts{accountId}/transactions?fromDate={fromDate}&toDate={toDate}&transactionType={transactionType}
         required: accountId
@@ -161,7 +175,7 @@ class InvestecClient(Client):
         """
         if "accountId" in kwargs:
             try:
-                url = f"{self.https}{self.host}/{self.base}/{self.accounts}{kwargs.get('accountId')}"
+                url = f"{self.https}{self.host}/{self.base}/{self.accounts}/{kwargs.get('accountId')}/transactions"
                 response = self.get(
                     url=url,
                     headers=self._bearer_header()
@@ -169,15 +183,16 @@ class InvestecClient(Client):
             except Exception as e:
                 return e
             else:
-                return response
+                if response.status_code == 200:
+                    return json.loads(response.text)
 
-    def _build_destination_account_balance(self, **kwargs):
+    def _build_request_account_balance(self, **kwargs):
         """
         GET /za/pb/v1/accounts{accountId}/balance
         """
         if "accountId" in kwargs:
             try:
-                url = f"{self.https}{self.host}/{self.base}/{self.accounts}{kwargs.get('accountId')}/balance"
+                url = f"{self.https}{self.host}/{self.base}/{self.accounts}/{kwargs.get('accountId')}/balance"
                 response = self.get(
                     url=url,
                     headers=self._bearer_header()
@@ -185,7 +200,8 @@ class InvestecClient(Client):
             except Exception as e:
                 return e
             else:
-                return response
+                if response.status_code == 200:
+                    return json.loads(response.text)
 
     def access_bank(self, destination, **kwargs):
         """
@@ -194,6 +210,7 @@ class InvestecClient(Client):
             - account_transactions
             - account_balance
         """
-        if destination in self.destination_lookup:
-            getattr(self, f"_build_destination_{destination}")(**kwargs)
+        if destination in self.requests_lookup:
+            return getattr(self, f"_build_request_{destination}")(**kwargs)
+
 
