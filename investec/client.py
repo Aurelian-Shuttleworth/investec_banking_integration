@@ -1,5 +1,6 @@
+from datetime import datetime, timedelta
 import requests
-from base64 import b64encode
+from requests import auth
 
 
 class Singleton(type):
@@ -20,60 +21,85 @@ class Client(metaclass=Singleton):
         - token:
     """
 
-    def __init__(self, token):
-        # token and access_token data
-        # timer check here to handle the token and access token.
-        self.token = token
-        self.access_token = None
-        self.expires_in = None  # lifetime in seconds, 3600 == 1 hour.
+    def __init__(self, client_id, client_secret):
 
-        # headers
-        self.headers = None
+        if not client_id or not client_secret:
+            raise ValueError("To build a token the client_id and client_secret will be required.")
+
+        self._token = None
+        self.token(requests.auth.HTTPBasicAuth(client_id, client_secret))
+
+        self._access_token = None
+        self._expires_in = None  # lifetime in seconds, 3600 == 1 hour.
+        self._token_expires = datetime.now()
+
+        # urls data
+        self._https = "https://"
+        self._host = "openapi.investec.com"
+        self._domain = "identity"
+        self._version = "v2"
+        self.auth_url = None
+
+    @property
+    def token(self):
+        return self._token
+
+    @token.setter
+    def token(self, value):
+        self._token = f"Basic {value}"
+
+    @property
+    def expires_in(self):
+        return self._expires_in
+
+    @property
+    def token_expires(self):
+        return self._token_expires
+
+    @expires_in.setter
+    def expires_in(self, value):
+        if value is not None:
+            self._expires_in = value
+            self._token_expires = datetime.now() + timedelta(seconds=value)
+
+    @property
+    def access_token(self):
+        return self._expires_in
+
+    @access_token.setter
+    def access_token(self, value):
+        self._access_token = f"Bearer {value}"
 
     def _authentication(self):
-        """Does oauth2 authentication, uses the token as the initial Basic auth api key.
+        """Does oauth2 authentication, uses the token as the initial Basic auth api key."""
+        if self.token_expires - timedelta(seconds=30) > datetime.now():
+            return
 
-        https://openapi.investec.com/identity/v2/oauth2/token
+        if self.auth_url is None:
+            self.auth_url = f"{self._https}{self._host}/{self._domain}/{self._version}/oauth2/token"
 
-        POST /identity/v2/oauth2/token
+        response = self.post(
+            url=self.auth_url,
+            headers=self._basic_header()
+        )
 
-        client_id = None
-        client_secret = None
-        basic = b64encode(f"{client_id}:{client_secret}".encode("ascii")).decode()
+        self.access_token(response.json().get("access_token"))  # have a none base exception.
+        self.expires_in(response.json().get("expires_in"))
 
-        """
-        # time check?
-
-        headers = self._build_basic_header()
-        response = self.post(destination="", headers=headers)
-        data = response.json()
-
-        self.access_token = data.get("access_token", None)  # have a none base exception.
-
-        self.headers = self._build_bearer_header()
-
-    def _build_header(self):
-        # make a choice in the headers.
-        pass
-
-    def _build_basic_header(self):
+    def _basic_header(self):
         return {
-            "Authorization": f"Basic {self.token}",
+            "Authorization": {self.token},
             "content-type": "application/x-www-form-urlencoded",
         }
 
-    def _build_bearer_header(self):
+    def _bearer_header(self):
         return {
-            "Authorization": f"Bearer {self.access_token}",
+            "Authorization": self._access_token,
             "content-type": "application/json",
         }
 
-    def post(self, destination, headers):
+    def post(self, url, headers):
         """Make a post request."""
-
-        url = getattr(self, destination)
-
-        # get data as a conditional as well.
 
         return requests.post(
             url=url,
@@ -81,20 +107,19 @@ class Client(metaclass=Singleton):
             data="",
         )
 
-    def get(self, url):
+    def get(self, url, headers):
         """Make a get request."""
         self._authentication()
 
         return requests.get(
             url=url,
-            headers=self.headers,
+            headers=headers,
         )
 
 
 class InvestecClient(Client):
-    def __init__(self, token):
-        super().__init__(token)
-        # singleton based, so will only have one instance, need to refresh if possible.
+    def __init__(self, client_id, client_secret):
+        super().__init__(client_id, client_secret)
 
         self.destination_lookup = [
             "accounts",
@@ -117,7 +142,10 @@ class InvestecClient(Client):
         url = f"{self.https}{self.host}/{self.base}/{self.accounts}"
 
         try:
-            response = self.get(url)
+            response = self.get(
+                url=url,
+                headers=self._bearer_header()
+            )
         except Exception as e:
             return e
         else:
@@ -126,25 +154,20 @@ class InvestecClient(Client):
     def _build_destination_account_transactions(self, **kwargs):
         """
         GET /za/pb/v1/accounts{accountId}/transactions?fromDate={fromDate}&toDate={toDate}&transactionType={transactionType}
+        required: accountId
+        params: fromDate, toDate, transactionType
         """
         if "accountId" in kwargs:
             try:
                 url = f"{self.https}{self.host}/{self.base}/{self.accounts}{kwargs.get('accountId')}"
-                response = self.get(url)
+                response = self.get(
+                    url=url,
+                    headers=self._bearer_header()
+                )
             except Exception as e:
                 return e
             else:
                 return response
-
-        # required:
-            # accountId
-
-        # params:
-            # fromDate
-            # toDate
-            # transactionType
-        pass
-        # try, except loop
 
     def _build_destination_account_balance(self, **kwargs):
         """
@@ -153,13 +176,16 @@ class InvestecClient(Client):
         if "accountId" in kwargs:
             try:
                 url = f"{self.https}{self.host}/{self.base}/{self.accounts}{kwargs.get('accountId')}/balance"
-                response = self.get(url)
+                response = self.get(
+                    url=url,
+                    headers=self._bearer_header()
+                )
             except Exception as e:
                 return e
             else:
                 return response
 
-    def access_banking(self, destination, **kwargs):
+    def access_bank(self, destination, **kwargs):
         """
         destination keywords
             - accounts
