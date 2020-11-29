@@ -27,7 +27,7 @@ class Client(metaclass=Singleton):
             raise ValueError("To build a token the client_id and client_secret will be required.")
 
         self._token = None
-        self.token(requests.auth.HTTPBasicAuth(client_id, client_secret))
+        self.token = requests.auth.HTTPBasicAuth(client_id, client_secret)
 
         self._access_token = None
         self._expires_in = None  # lifetime in seconds, 3600 == 1 hour.
@@ -83,8 +83,8 @@ class Client(metaclass=Singleton):
             headers=self._basic_header()
         )
 
-        self.access_token(response.json().get("access_token"))  # have a none base exception.
-        self.expires_in(response.json().get("expires_in"))
+        self.access_token = response.json().get("access_token")  # have a none base exception.
+        self.expires_in = response.json().get("expires_in")
 
     def _basic_header(self):
         return {
